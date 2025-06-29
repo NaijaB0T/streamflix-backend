@@ -1,5 +1,5 @@
 // src/durable-objects/MatchStateDO.ts
-import { Bindings } from "..";
+import { Bindings } from "../bindings";
 
 interface VoteEvent {
   id: number;

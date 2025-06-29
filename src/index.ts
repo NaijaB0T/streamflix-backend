@@ -1,16 +1,5 @@
 import { Hono } from 'hono';
-
-export type Bindings = {
-  DB: D1Database;
-  KV: KVNamespace;
-  MATCH_STATE_DO: DurableObjectNamespace;
-  USER_SESSION_DO: DurableObjectNamespace;
-  TWITCH_CLIENT_ID: string;
-  TWITCH_CLIENT_SECRET: string;
-  ADMIN_SECRET: string;
-  JWT_SECRET: string;
-  TWITCH_WEBHOOK_SECRET: string;
-};
+import { Bindings } from './bindings';
 
 import admin from './routes/admin';
 import auth from './routes/auth';
@@ -19,8 +8,7 @@ import tournaments from './routes/tournaments';
 import users from './routes/users';
 import webhooks from './routes/webhooks';
 
-export { MatchStateDO } from './durable-objects/MatchStateDO';
-export { UserSessionDO } from './durable-objects/UserSessionDO';
+import { MatchStateDO, UserSessionDO } from './objects';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -36,4 +24,10 @@ app.route('/api/admin', admin);
 app.route('/api/webhooks', webhooks);
 app.route('/api/internal', internal);
 
-export default app;
+// Default export for the fetch handler
+export default {
+  fetch: app.fetch,
+};
+
+// Named exports for your Durable Objects
+export { MatchStateDO, UserSessionDO };

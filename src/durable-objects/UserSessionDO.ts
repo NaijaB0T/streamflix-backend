@@ -1,5 +1,5 @@
 // src/durable-objects/UserSessionDO.ts
-import { Bindings } from "..";
+import { Bindings } from "../bindings";
 
 export class UserSessionDO implements DurableObject {
   state: DurableObjectState;
