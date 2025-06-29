@@ -1,0 +1,16 @@
+{
+  "compatibility_date": "2025-04-01",
+  "main": "src/index.ts",
+  "name": "streamflix-backend",
+  "upload_source_maps": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "67f57d80-39e9-425d-a01b-31849bce4360",
+      "database_name": "streamflix-db"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
