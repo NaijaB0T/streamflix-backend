@@ -29,5 +29,11 @@
     "dev": "wrangler dev",
     "predeploy": "wrangler d1 migrations apply DB --remote",
     "seedLocalD1": "wrangler d1 migrations apply DB --local"
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^4.20250628.0",
+    "@hono/zod-validator": "^0.7.0",
+    "hono": "^4.8.3",
+    "zod": "^3.25.67"
   }
 }

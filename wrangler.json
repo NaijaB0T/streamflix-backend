@@ -12,5 +12,33 @@
   ],
   "observability": {
     "enabled": true
+  },
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "1cf01f70741d4db6856e96bfca744cc0",
+      "preview_id": "1cf01f70741d4db6856e96bfca744cc0"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MATCH_STATE_DO",
+        "class_name": "MatchStateDO"
+      },
+      {
+        "name": "USER_SESSION_DO",
+        "class_name": "UserSessionDO"
+      }
+    ],
+    "migrations": [
+      {
+        "tag": "v1",
+        "new_classes": [
+          "MatchStateDO",
+          "UserSessionDO"
+        ]
+      }
+    ]
   }
 }
