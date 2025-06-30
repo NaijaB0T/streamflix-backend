@@ -257,9 +257,31 @@ admin.delete(
   ),
   async (c) => {
     const tournamentId = c.req.param('id');
+    const db = c.env.DB;
+    
     try {
-      await c.env.DB.prepare('DELETE FROM Tournaments WHERE id = ?').bind(tournamentId).run();
-      return c.json({ message: 'Tournament deleted successfully' }, 200);
+      // Delete in correct order to avoid foreign key constraints
+      
+      // 1. Delete league standings (if they reference tournament participants)
+      await db.prepare('DELETE FROM LeagueStandings WHERE participant_id IN (SELECT id FROM TournamentParticipants WHERE tournament_id = ?)').bind(tournamentId).run();
+      
+      // 2. Delete vote events and votes for matches in this tournament
+      await db.prepare('DELETE FROM Votes WHERE event_id IN (SELECT id FROM VoteEvents WHERE match_id IN (SELECT id FROM Matches WHERE tournament_id = ?))').bind(tournamentId).run();
+      await db.prepare('DELETE FROM VoteEvents WHERE match_id IN (SELECT id FROM Matches WHERE tournament_id = ?)').bind(tournamentId).run();
+      
+      // 3. Delete matches
+      await db.prepare('DELETE FROM Matches WHERE tournament_id = ?').bind(tournamentId).run();
+      
+      // 4. Delete tournament participants
+      await db.prepare('DELETE FROM TournamentParticipants WHERE tournament_id = ?').bind(tournamentId).run();
+      
+      // 5. Delete tournament registrations
+      await db.prepare('DELETE FROM TournamentRegistrations WHERE tournament_id = ?').bind(tournamentId).run();
+      
+      // 6. Finally delete the tournament itself
+      await db.prepare('DELETE FROM Tournaments WHERE id = ?').bind(tournamentId).run();
+      
+      return c.json({ message: 'Tournament and all related data deleted successfully' }, 200);
     } catch (e: any) {
       return c.json({ error: 'Failed to delete tournament', details: e.message }, 500);
     }
