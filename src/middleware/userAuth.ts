@@ -4,7 +4,15 @@ import { verify } from 'hono/jwt';
 import { getCookie } from 'hono/cookie';
 
 export const userAuth = createMiddleware(async (c, next) => {
-  const token = getCookie(c, 'auth_token');
+  // Try to get token from Authorization header first, then fallback to cookie
+  const authHeader = c.req.header('Authorization');
+  let token = null;
+  
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  } else {
+    token = getCookie(c, 'auth_token');
+  }
 
   if (!token) {
     return c.json({ error: 'Unauthorized' }, 401);

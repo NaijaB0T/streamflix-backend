@@ -97,16 +97,12 @@ auth.get('/callback', async (c) => {
   const secret = c.env.JWT_SECRET; // You'll need to add JWT_SECRET to your secrets
   const token = await sign(payload, secret);
 
-  // Set JWT in a secure cookie
-  setCookie(c, 'auth_token', token, {
-    path: '/',
-    secure: true,
-    httpOnly: true,
-    sameSite: 'Lax',
-  });
+  // For cross-domain setup, send token as URL parameter instead of cookie
+  // The frontend will then store it in localStorage and send it in headers
+  const frontendUrl = new URL('http://localhost:3000');
+  frontendUrl.searchParams.set('token', token);
   
-
-  return c.redirect('http://localhost:3000'); // Redirect to the frontend (update this when you deploy frontend)
+  return c.redirect(frontendUrl.toString());
 });
 
 export default auth;
