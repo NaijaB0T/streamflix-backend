@@ -69,7 +69,7 @@ admin.post(
   zValidator(
     'json',
     z.object({
-      participantIds: z.array(z.number()).length(36),
+      participantIds: z.array(z.number()).min(1).max(36),
     })
   ),
   async (c) => {
@@ -79,29 +79,18 @@ admin.post(
     // This should be a transaction
     const db = c.env.DB;
     
-    // D1 batch doesn't handle dynamic numbers of bindings well in a single statement.
-    // It's better to create the statements separately.
-    const statements = [
+    // Update the selected registrations to CONFIRMED status
+    // The frontend sends registration IDs, not user IDs
+    if (participantIds.length > 0) {
+      const placeholders = participantIds.map(() => '?').join(',');
+      
       // Set selected participants to CONFIRMED
-      db.prepare(
+      await db.prepare(
         `UPDATE TournamentRegistrations
          SET status = 'CONFIRMED'
-         WHERE tournament_id = ? AND user_id IN (${participantIds.map(() => '?').join(',')})`
-      ).bind(tournamentId, ...participantIds),
-      // Set everyone else to NOT_SELECTED
-      db.prepare(
-        `UPDATE TournamentRegistrations
-         SET status = 'NOT_SELECTED'
-         WHERE tournament_id = ? AND user_id NOT IN (${participantIds.map(() => '?').join(',')})`
-      ).bind(tournamentId, ...participantIds)
-    ];
-
-    // We also need to add them to the TournamentParticipants and LeagueStandings tables.
-    // This requires fetching the registration_id first. This is too complex for a simple batch
-    // and should be done in a loop or a more complex transaction if the driver supported it.
-    // For now, we'll just update the statuses.
-
-    await db.batch(statements);
+         WHERE tournament_id = ? AND id IN (${placeholders})`
+      ).bind(tournamentId, ...participantIds).run();
+    }
     
     // A proper implementation would loop and insert into TournamentParticipants
     // and LeagueStandings. For now, this is a simplified version.
