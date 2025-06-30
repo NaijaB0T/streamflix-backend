@@ -171,10 +171,41 @@ admin.post(
         ).bind(fixture.awayPlayerRegistrationId).first();
 
         if (homePlayerReg && awayPlayerReg) {
-          // Note: The schema expects participant_ids, but we're not using TournamentParticipants anymore
-          // We need to create participant records or change the schema to use user_ids directly
-          // For now, let's skip saving matches until the schema is aligned with our architecture
-          console.log(`Would create match: ${homePlayerReg.user_id} vs ${awayPlayerReg.user_id}`);
+          // First ensure we have participant records (needed for matches table schema)
+          let homeParticipant = await db.prepare(
+            'SELECT id FROM TournamentParticipants WHERE user_id = ? AND tournament_id = ?'
+          ).bind(homePlayerReg.user_id, tournamentId).first();
+
+          let awayParticipant = await db.prepare(
+            'SELECT id FROM TournamentParticipants WHERE user_id = ? AND tournament_id = ?'
+          ).bind(awayPlayerReg.user_id, tournamentId).first();
+
+          // Create participant records if they don't exist
+          if (!homeParticipant) {
+            const result = await db.prepare(
+              'INSERT INTO TournamentParticipants (registration_id, user_id, tournament_id, status) VALUES (?, ?, ?, ?)'
+            ).bind(fixture.homePlayerRegistrationId, homePlayerReg.user_id, tournamentId, 'ACTIVE').run();
+            homeParticipant = { id: result.meta.last_row_id };
+          }
+
+          if (!awayParticipant) {
+            const result = await db.prepare(
+              'INSERT INTO TournamentParticipants (registration_id, user_id, tournament_id, status) VALUES (?, ?, ?, ?)'
+            ).bind(fixture.awayPlayerRegistrationId, awayPlayerReg.user_id, tournamentId, 'ACTIVE').run();
+            awayParticipant = { id: result.meta.last_row_id };
+          }
+
+          // Create the match
+          await db.prepare(
+            `INSERT INTO Matches 
+             (tournament_id, phase, status, player_a_participant_id, player_b_participant_id, scheduled_at) 
+             VALUES (?, ?, 'SCHEDULED', ?, ?, datetime('now', '+7 days'))`
+          ).bind(
+            tournamentId, 
+            fixture.phase, 
+            homeParticipant.id, 
+            awayParticipant.id
+          ).run();
         }
       }
 
@@ -188,6 +219,177 @@ admin.post(
     }
   }
 );
+
+// Update match details (schedule, scores, status)
+admin.patch(
+  '/matches/:id',
+  zValidator(
+    'param',
+    z.object({
+      id: z.string().regex(/^\d+$/),
+    })
+  ),
+  zValidator(
+    'json',
+    z.object({
+      scheduled_at: z.string().optional(),
+      status: z.enum(['SCHEDULED', 'LIVE', 'COMPLETED']).optional(),
+      player_a_score: z.number().optional(),
+      player_b_score: z.number().optional(),
+      winner_participant_id: z.number().optional()
+    })
+  ),
+  async (c) => {
+    const matchId = c.req.param('id');
+    const updates = c.req.valid('json');
+    const db = c.env.DB;
+
+    try {
+      // Build dynamic update query
+      const updateFields = [];
+      const values = [];
+      
+      if (updates.scheduled_at) {
+        updateFields.push('scheduled_at = ?');
+        values.push(updates.scheduled_at);
+      }
+      if (updates.status) {
+        updateFields.push('status = ?');
+        values.push(updates.status);
+      }
+      if (updates.player_a_score !== undefined) {
+        updateFields.push('player_a_score = ?');
+        values.push(updates.player_a_score);
+      }
+      if (updates.player_b_score !== undefined) {
+        updateFields.push('player_b_score = ?');
+        values.push(updates.player_b_score);
+      }
+      if (updates.winner_participant_id) {
+        updateFields.push('winner_participant_id = ?');
+        values.push(updates.winner_participant_id);
+      }
+
+      if (updateFields.length === 0) {
+        return c.json({ error: 'No fields to update' }, 400);
+      }
+
+      values.push(matchId);
+      
+      await db.prepare(
+        `UPDATE Matches SET ${updateFields.join(', ')} WHERE id = ?`
+      ).bind(...values).run();
+
+      // If match is completed, update league standings
+      if (updates.status === 'COMPLETED' && updates.player_a_score !== undefined && updates.player_b_score !== undefined) {
+        await updateLeagueStandings(db, matchId, updates.player_a_score, updates.player_b_score, updates.winner_participant_id);
+      }
+
+      return c.json({ message: 'Match updated successfully' });
+    } catch (error: any) {
+      return c.json({ error: 'Failed to update match', details: error.message }, 500);
+    }
+  }
+);
+
+// Get matches for a tournament with detailed info
+admin.get(
+  '/tournaments/:id/matches',
+  zValidator(
+    'param',
+    z.object({
+      id: z.string().regex(/^\d+$/),
+    })
+  ),
+  async (c) => {
+    const tournamentId = c.req.param('id');
+
+    try {
+      const matches = await c.env.DB.prepare(
+        `SELECT 
+           m.id, m.phase, m.status, m.scheduled_at, m.player_a_score, m.player_b_score,
+           m.winner_participant_id,
+           pa.id as player_a_participant_id, ua.twitch_username as player_a_username, ua.twitch_profile_image_url as player_a_image,
+           pb.id as player_b_participant_id, ub.twitch_username as player_b_username, ub.twitch_profile_image_url as player_b_image
+         FROM Matches m
+         LEFT JOIN TournamentParticipants pa ON m.player_a_participant_id = pa.id
+         LEFT JOIN Users ua ON pa.user_id = ua.id
+         LEFT JOIN TournamentParticipants pb ON m.player_b_participant_id = pb.id  
+         LEFT JOIN Users ub ON pb.user_id = ub.id
+         WHERE m.tournament_id = ?
+         ORDER BY m.scheduled_at ASC`
+      ).bind(tournamentId).all();
+
+      const formattedMatches = (matches.results || []).map(match => ({
+        id: match.id,
+        phase: match.phase,
+        status: match.status,
+        scheduled_at: match.scheduled_at,
+        player_a_score: match.player_a_score,
+        player_b_score: match.player_b_score,
+        winner_participant_id: match.winner_participant_id,
+        player_a: {
+          participant_id: match.player_a_participant_id,
+          twitch_username: match.player_a_username,
+          twitch_profile_image_url: match.player_a_image
+        },
+        player_b: {
+          participant_id: match.player_b_participant_id,
+          twitch_username: match.player_b_username,
+          twitch_profile_image_url: match.player_b_image
+        }
+      }));
+
+      return c.json(formattedMatches);
+    } catch (error: any) {
+      return c.json({ error: 'Failed to fetch matches', details: error.message }, 500);
+    }
+  }
+);
+
+// Helper function to update league standings after match completion
+async function updateLeagueStandings(db: any, matchId: number, scoreA: number, scoreB: number, winnerId?: number) {
+  // Get match participants
+  const match = await db.prepare(
+    'SELECT player_a_participant_id, player_b_participant_id FROM Matches WHERE id = ?'
+  ).bind(matchId).first();
+
+  if (!match) return;
+
+  const participantA = match.player_a_participant_id;
+  const participantB = match.player_b_participant_id;
+
+  // Determine match result
+  let aPoints = 0, bPoints = 0, aWins = 0, bWins = 0, aDraws = 0, bDraws = 0, aLosses = 0, bLosses = 0;
+
+  if (scoreA > scoreB) {
+    aPoints = 3; bPoints = 0; aWins = 1; bLosses = 1;
+  } else if (scoreB > scoreA) {
+    bPoints = 3; aPoints = 0; bWins = 1; aLosses = 1;
+  } else {
+    aPoints = 1; bPoints = 1; aDraws = 1; bDraws = 1;
+  }
+
+  // Update standings for both participants
+  for (const [participantId, points, wins, draws, losses, goalsFor, goalsAgainst] of [
+    [participantA, aPoints, aWins, aDraws, aLosses, scoreA, scoreB],
+    [participantB, bPoints, bWins, bDraws, bLosses, scoreB, scoreA]
+  ]) {
+    await db.prepare(`
+      INSERT INTO LeagueStandings (participant_id, points, matches_played, wins, draws, losses)
+      VALUES (?, ?, 1, ?, ?, ?)
+      ON CONFLICT(participant_id) DO UPDATE SET
+        points = points + ?,
+        matches_played = matches_played + 1,
+        wins = wins + ?,
+        draws = draws + ?,
+        losses = losses + ?
+    `).bind(
+      participantId, points, wins, draws, losses,
+      points, wins, draws, losses
+    ).run();
+  }
+}
 
 // Admin creates a new tournament registration
 admin.post(
@@ -429,6 +631,166 @@ admin.get(
       return c.json({ registration_id: registration.id }, 200);
     } catch (e: any) {
       return c.json({ error: 'Failed to get registration', details: e.message }, 500);
+    }
+  }
+);
+
+// Generate knockout bracket from league standings
+admin.post(
+  '/tournaments/:id/generate-knockout',
+  zValidator(
+    'param',
+    z.object({
+      id: z.string().regex(/^\\d+$/),
+    })
+  ),
+  async (c) => {
+    const tournamentId = c.req.param('id');
+    const db = c.env.DB;
+
+    try {
+      // Get final league standings (sorted by points, GD, etc.)
+      const standings = await db.prepare(`
+        SELECT 
+          tp.id as participant_id, 
+          u.twitch_username,
+          COALESCE(ls.points, 0) as points,
+          COALESCE(ls.matches_played, 0) as matches_played,
+          COALESCE(ls.wins, 0) as wins,
+          COALESCE(ls.draws, 0) as draws,
+          COALESCE(ls.losses, 0) as losses,
+          (COALESCE(ls.wins, 0) * 3 + COALESCE(ls.draws, 0)) as calculated_points,
+          COALESCE((
+            SELECT SUM(CASE 
+              WHEN m.player_a_participant_id = tp.id THEN COALESCE(m.player_a_score, 0)
+              WHEN m.player_b_participant_id = tp.id THEN COALESCE(m.player_b_score, 0)
+              ELSE 0 END) -
+            SUM(CASE 
+              WHEN m.player_a_participant_id = tp.id THEN COALESCE(m.player_b_score, 0)
+              WHEN m.player_b_participant_id = tp.id THEN COALESCE(m.player_a_score, 0)
+              ELSE 0 END)
+            FROM Matches m 
+            WHERE (m.player_a_participant_id = tp.id OR m.player_b_participant_id = tp.id) 
+            AND m.status = 'COMPLETED'
+          ), 0) as goal_difference
+        FROM TournamentParticipants tp
+        JOIN Users u ON tp.user_id = u.id
+        LEFT JOIN LeagueStandings ls ON ls.participant_id = tp.id
+        WHERE tp.tournament_id = ?
+        ORDER BY calculated_points DESC, goal_difference DESC, u.twitch_username ASC
+      `).bind(tournamentId).all();
+
+      const participants = standings.results || [];
+      
+      if (participants.length < 16) {
+        return c.json({ error: 'Need at least 16 participants to generate knockout bracket' }, 400);
+      }
+
+      // Champions League knockout qualification:
+      // Positions 1-8: Direct to Round of 16
+      // Positions 9-24: Playoff round (9th vs 24th, 10th vs 23rd, etc.)
+      // Positions 25-36: Eliminated
+      
+      const directQualifiers = participants.slice(0, 8);      // 1st-8th
+      const playoffTeams = participants.slice(8, 24);        // 9th-24th
+      const eliminated = participants.slice(24);             // 25th-36th
+
+      // Update participant statuses
+      for (const participant of directQualifiers) {
+        await db.prepare(
+          'UPDATE TournamentParticipants SET status = ? WHERE id = ?'
+        ).bind('QUALIFIED_DIRECT', participant.participant_id).run();
+      }
+      
+      for (const participant of playoffTeams) {
+        await db.prepare(
+          'UPDATE TournamentParticipants SET status = ? WHERE id = ?'
+        ).bind('QUALIFIED_PLAYOFF', participant.participant_id).run();
+      }
+      
+      for (const participant of eliminated) {
+        await db.prepare(
+          'UPDATE TournamentParticipants SET status = ? WHERE id = ?'
+        ).bind('ELIMINATED', participant.participant_id).run();
+      }
+
+      // Generate playoff matches (9th vs 24th, 10th vs 23rd, etc.)
+      const playoffMatches = [];
+      for (let i = 0; i < playoffTeams.length / 2; i++) {
+        const higherSeed = playoffTeams[i];
+        const lowerSeed = playoffTeams[playoffTeams.length - 1 - i];
+        
+        const matchResult = await db.prepare(`
+          INSERT INTO Matches (tournament_id, phase, status, player_a_participant_id, player_b_participant_id, scheduled_at)
+          VALUES (?, 'PLAYOFF', 'SCHEDULED', ?, ?, datetime('now', '+1 day'))
+        `).bind(
+          tournamentId,
+          higherSeed.participant_id,
+          lowerSeed.participant_id
+        ).run();
+        
+        playoffMatches.push({
+          id: matchResult.meta.last_row_id,
+          player_a: higherSeed.twitch_username,
+          player_b: lowerSeed.twitch_username,
+          seeding: `${i + 9} vs ${24 - i}`
+        });
+      }
+
+      // Generate Round of 16 placeholder matches
+      const roundOf16Matches = [];
+      
+      // First 4 matches: Direct qualifiers (1 vs 8, 2 vs 7, 3 vs 6, 4 vs 5)
+      const r16Pairings = [
+        [0, 7], [1, 6], [2, 5], [3, 4] // Indexes in directQualifiers array
+      ];
+      
+      for (const [aIndex, bIndex] of r16Pairings) {
+        const matchResult = await db.prepare(`
+          INSERT INTO Matches (tournament_id, phase, status, player_a_participant_id, player_b_participant_id, scheduled_at)
+          VALUES (?, 'ROUND_OF_16', 'SCHEDULED', ?, ?, datetime('now', '+3 days'))
+        `).bind(
+          tournamentId,
+          directQualifiers[aIndex].participant_id,
+          directQualifiers[bIndex].participant_id
+        ).run();
+        
+        roundOf16Matches.push({
+          id: matchResult.meta.last_row_id,
+          player_a: directQualifiers[aIndex].twitch_username,
+          player_b: directQualifiers[bIndex].twitch_username,
+          seeding: `${aIndex + 1} vs ${bIndex + 1}`
+        });
+      }
+
+      // Remaining 4 matches: Playoff winners (TBD)
+      for (let i = 0; i < 4; i++) {
+        const matchResult = await db.prepare(`
+          INSERT INTO Matches (tournament_id, phase, status, player_a_participant_id, player_b_participant_id, scheduled_at)
+          VALUES (?, 'ROUND_OF_16', 'SCHEDULED', NULL, NULL, datetime('now', '+5 days'))
+        `).bind(tournamentId).run();
+        
+        roundOf16Matches.push({
+          id: matchResult.meta.last_row_id,
+          player_a: 'Playoff Winner TBD',
+          player_b: 'Playoff Winner TBD',
+          seeding: 'Playoff Winners'
+        });
+      }
+
+      return c.json({
+        message: 'Knockout bracket generated successfully',
+        qualification_summary: {
+          direct_qualifiers: directQualifiers.length,
+          playoff_teams: playoffTeams.length,
+          eliminated: eliminated.length
+        },
+        playoff_matches: playoffMatches,
+        round_of_16_matches: roundOf16Matches
+      });
+
+    } catch (error: any) {
+      return c.json({ error: 'Failed to generate knockout bracket', details: error.message }, 500);
     }
   }
 );

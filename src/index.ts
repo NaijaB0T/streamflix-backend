@@ -11,6 +11,7 @@ import internal from './routes/internal';
 import tournaments from './routes/tournaments';
 import users from './routes/users';
 import webhooks from './routes/webhooks';
+import notifications from './routes/notifications';
 
 import { MatchStateDO, UserSessionDO } from './objects';
 
@@ -35,6 +36,7 @@ app.route('/api/users', users);
 app.route('/api/admin', admin);
 app.route('/api/webhooks', webhooks);
 app.route('/api/internal', internal);
+app.route('/api/notifications', notifications);
 
 // Default export for the fetch handler
 export default {
