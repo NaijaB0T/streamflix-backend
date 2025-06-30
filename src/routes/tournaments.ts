@@ -167,8 +167,10 @@ tournaments.get(
            ua.twitch_username as player_a_username,
            ub.twitch_username as player_b_username
          FROM Matches m
-         LEFT JOIN Users ua ON m.player_a_user_id = ua.id
-         LEFT JOIN Users ub ON m.player_b_user_id = ub.id
+         LEFT JOIN TournamentParticipants pa ON m.player_a_participant_id = pa.id
+         LEFT JOIN Users ua ON pa.user_id = ua.id
+         LEFT JOIN TournamentParticipants pb ON m.player_b_participant_id = pb.id  
+         LEFT JOIN Users ub ON pb.user_id = ub.id
          WHERE m.tournament_id = ?
          ORDER BY m.scheduled_at`
       ).bind(tournamentId).all();
