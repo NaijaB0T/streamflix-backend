@@ -7,6 +7,19 @@ import { z } from 'zod';
 
 const tournaments = new Hono<{ Bindings: Bindings }>();
 
+// Get all tournaments (public endpoint)
+tournaments.get('/', async (c) => {
+  try {
+    const allTournaments = await c.env.DB.prepare(
+      'SELECT * FROM Tournaments ORDER BY created_at DESC'
+    ).all();
+    
+    return c.json(allTournaments.results);
+  } catch (error: any) {
+    return c.json({ error: 'Failed to fetch tournaments' }, 500);
+  }
+});
+
 // User registers for a tournament
 tournaments.post(
   '/:id/register',
