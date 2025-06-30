@@ -96,6 +96,40 @@ admin.post(
   }
 );
 
+// Update tournament status
+admin.patch(
+  '/tournaments/:id/status',
+  zValidator(
+    'param',
+    z.object({
+      id: z.string().regex(/^\d+$/),
+    })
+  ),
+  zValidator(
+    'json',
+    z.object({
+      status: z.enum(['DRAFT', 'REGISTRATION_OPEN', 'REGISTRATION_CLOSED', 'AWAITING_SELECTION', 'LEAGUE_PHASE', 'KNOCKOUTS', 'COMPLETED'])
+    })
+  ),
+  async (c) => {
+    const tournamentId = c.req.param('id');
+    const { status } = c.req.valid('json');
+    
+    try {
+      await c.env.DB.prepare(
+        'UPDATE Tournaments SET status = ? WHERE id = ?'
+      ).bind(status, tournamentId).run();
+
+      return c.json({ 
+        message: `Tournament status updated to ${status}`,
+        status: status 
+      });
+    } catch (error: any) {
+      return c.json({ error: 'Failed to update tournament status', details: error.message }, 500);
+    }
+  }
+);
+
 // Save tournament fixtures to database
 admin.post(
   '/:id/save-fixtures',
