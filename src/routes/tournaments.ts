@@ -85,7 +85,7 @@ tournaments.get(
       .first();
 
     if (!registration) {
-      return c.json({ status: 'NOT_REGISTERED' }, 404);
+      return c.json({ status: 'NOT_REGISTERED' }, 200);
     }
 
     return c.json({ status: registration.status });
