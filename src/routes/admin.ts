@@ -90,12 +90,36 @@ admin.post(
          SET status = 'CONFIRMED'
          WHERE tournament_id = ? AND id IN (${placeholders})`
       ).bind(tournamentId, ...participantIds).run();
-    }
-    
-    // A proper implementation would loop and insert into TournamentParticipants
-    // and LeagueStandings. For now, this is a simplified version.
 
-    return c.json({ message: 'Participants confirmed' });
+      // Get the confirmed registrations to create participants
+      const confirmedRegistrations = await db.prepare(
+        `SELECT id, user_id FROM TournamentRegistrations 
+         WHERE tournament_id = ? AND id IN (${placeholders})`
+      ).bind(tournamentId, ...participantIds).all();
+
+      // Create TournamentParticipants for each confirmed registration
+      for (const registration of confirmedRegistrations.results || []) {
+        await db.prepare(
+          'INSERT INTO TournamentParticipants (registration_id, user_id, tournament_id, status) VALUES (?, ?, ?, ?)'
+        ).bind(registration.id, registration.user_id, tournamentId, 'ACTIVE').run();
+      }
+
+      // Create initial league standings for participants
+      const participants = await db.prepare(
+        `SELECT id FROM TournamentParticipants 
+         WHERE tournament_id = ? AND status = 'ACTIVE'`
+      ).bind(tournamentId).all();
+
+      for (const participant of participants.results || []) {
+        await db.prepare(
+          `INSERT INTO LeagueStandings 
+           (participant_id, matches_played, wins, draws, losses, goals_for, goals_against, goal_difference, points) 
+           VALUES (?, 0, 0, 0, 0, 0, 0, 0, 0)`
+        ).bind(participant.id).run();
+      }
+    }
+
+    return c.json({ message: 'Participants confirmed and initialized' });
   }
 );
 
