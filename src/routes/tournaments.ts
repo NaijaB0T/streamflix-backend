@@ -120,7 +120,7 @@ tournaments.get(
   }
 );
 
-// Get tournament participants (public endpoint)
+// Get tournament participants (public endpoint) - queries confirmed registrations directly
 tournaments.get(
   '/:id/participants',
   zValidator(
@@ -134,10 +134,10 @@ tournaments.get(
 
     try {
       const participants = await c.env.DB.prepare(
-        `SELECT tp.id, tp.status, u.twitch_username, u.twitch_profile_image_url
-         FROM TournamentParticipants tp 
-         JOIN Users u ON tp.user_id = u.id 
-         WHERE tp.tournament_id = ? AND tp.status = 'ACTIVE'
+        `SELECT tr.id, tr.status, u.twitch_username, u.twitch_profile_image_url
+         FROM TournamentRegistrations tr 
+         JOIN Users u ON tr.user_id = u.id 
+         WHERE tr.tournament_id = ? AND tr.status = 'CONFIRMED'
          ORDER BY u.twitch_username`
       ).bind(tournamentId).all();
 
@@ -148,7 +148,7 @@ tournaments.get(
   }
 );
 
-// Get tournament matches (public endpoint)
+// Get tournament matches (public endpoint) - simplified for now
 tournaments.get(
   '/:id/matches',
   zValidator(
@@ -161,46 +161,23 @@ tournaments.get(
     const tournamentId = c.req.param('id');
 
     try {
+      // For now, return matches directly from the Matches table if they exist
       const matches = await c.env.DB.prepare(
         `SELECT 
-           m.id, m.phase, m.status, m.scheduled_at, m.player_a_score, m.player_b_score,
-           pa.id as player_a_id, ua.twitch_username as player_a_username,
-           pb.id as player_b_id, ub.twitch_username as player_b_username
+           m.id, m.phase, m.status, m.scheduled_at, m.player_a_score, m.player_b_score
          FROM Matches m
-         LEFT JOIN TournamentParticipants pa ON m.player_a_participant_id = pa.id
-         LEFT JOIN Users ua ON pa.user_id = ua.id
-         LEFT JOIN TournamentParticipants pb ON m.player_b_participant_id = pb.id  
-         LEFT JOIN Users ub ON pb.user_id = ub.id
          WHERE m.tournament_id = ?
          ORDER BY m.scheduled_at`
       ).bind(tournamentId).all();
 
-      // Transform the data to match expected format
-      const formattedMatches = (matches.results || []).map(match => ({
-        id: match.id,
-        phase: match.phase,
-        status: match.status,
-        scheduled_at: match.scheduled_at,
-        player_a_score: match.player_a_score,
-        player_b_score: match.player_b_score,
-        player_a: match.player_a_id ? {
-          id: match.player_a_id,
-          twitch_username: match.player_a_username
-        } : null,
-        player_b: match.player_b_id ? {
-          id: match.player_b_id,
-          twitch_username: match.player_b_username
-        } : null
-      }));
-
-      return c.json(formattedMatches);
+      return c.json(matches.results || []);
     } catch (error: any) {
       return c.json({ error: 'Failed to fetch tournament matches' }, 500);
     }
   }
 );
 
-// Get tournament standings (public endpoint)
+// Get tournament standings (public endpoint) - creates initial standings from confirmed registrations
 tournaments.get(
   '/:id/standings',
   zValidator(
@@ -213,17 +190,29 @@ tournaments.get(
     const tournamentId = c.req.param('id');
 
     try {
-      const standings = await c.env.DB.prepare(
-        `SELECT 
-           ls.*, u.twitch_username, u.twitch_profile_image_url
-         FROM LeagueStandings ls
-         JOIN TournamentParticipants tp ON ls.participant_id = tp.id
-         JOIN Users u ON tp.user_id = u.id
-         WHERE tp.tournament_id = ?
-         ORDER BY ls.points DESC, ls.goal_difference DESC, ls.goals_for DESC`
+      // Create initial standings from confirmed registrations
+      const confirmedParticipants = await c.env.DB.prepare(
+        `SELECT u.id, u.twitch_username, u.twitch_profile_image_url
+         FROM TournamentRegistrations tr 
+         JOIN Users u ON tr.user_id = u.id 
+         WHERE tr.tournament_id = ? AND tr.status = 'CONFIRMED'
+         ORDER BY u.twitch_username`
       ).bind(tournamentId).all();
 
-      return c.json(standings.results || []);
+      // Return initial standings with zero values
+      const initialStandings = (confirmedParticipants.results || []).map(participant => ({
+        participant_id: participant.id,
+        matches_played: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        goal_difference: 0,
+        points: 0,
+        twitch_username: participant.twitch_username,
+        twitch_profile_image_url: participant.twitch_profile_image_url
+      }));
+
+      return c.json(initialStandings);
     } catch (error: any) {
       return c.json({ error: 'Failed to fetch tournament standings' }, 500);
     }

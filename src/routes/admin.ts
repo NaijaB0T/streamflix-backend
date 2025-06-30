@@ -79,7 +79,7 @@ admin.post(
     // This should be a transaction
     const db = c.env.DB;
     
-    // Update the selected registrations to CONFIRMED status
+    // Simply update the selected registrations to CONFIRMED status
     // The frontend sends registration IDs, not user IDs
     if (participantIds.length > 0) {
       const placeholders = participantIds.map(() => '?').join(',');
@@ -90,106 +90,12 @@ admin.post(
          SET status = 'CONFIRMED'
          WHERE tournament_id = ? AND id IN (${placeholders})`
       ).bind(tournamentId, ...participantIds).run();
-
-      // Get the confirmed registrations to create participants
-      const confirmedRegistrations = await db.prepare(
-        `SELECT id, user_id FROM TournamentRegistrations 
-         WHERE tournament_id = ? AND id IN (${placeholders})`
-      ).bind(tournamentId, ...participantIds).all();
-
-      // Create TournamentParticipants for each confirmed registration
-      for (const registration of confirmedRegistrations.results || []) {
-        await db.prepare(
-          'INSERT INTO TournamentParticipants (registration_id, user_id, tournament_id, status) VALUES (?, ?, ?, ?)'
-        ).bind(registration.id, registration.user_id, tournamentId, 'ACTIVE').run();
-      }
-
-      // Create initial league standings for participants
-      const participants = await db.prepare(
-        `SELECT id FROM TournamentParticipants 
-         WHERE tournament_id = ? AND status = 'ACTIVE'`
-      ).bind(tournamentId).all();
-
-      for (const participant of participants.results || []) {
-        await db.prepare(
-          `INSERT INTO LeagueStandings 
-           (participant_id, matches_played, wins, draws, losses, goal_difference, points) 
-           VALUES (?, 0, 0, 0, 0, 0, 0)`
-        ).bind(participant.id).run();
-      }
     }
 
-    return c.json({ message: 'Participants confirmed and initialized' });
+    return c.json({ message: 'Participants confirmed successfully' });
   }
 );
 
-// Simple SQL migration for all tournaments
-admin.post(
-  '/migrate-all-data',
-  async (c) => {
-    const db = c.env.DB;
-
-    try {
-      // Step 1: Create TournamentParticipants for all confirmed registrations
-      const participantsResult = await db.prepare(`
-        INSERT INTO TournamentParticipants (registration_id, user_id, tournament_id, status)
-        SELECT 
-            tr.id as registration_id,
-            tr.user_id,
-            tr.tournament_id,
-            'ACTIVE' as status
-        FROM TournamentRegistrations tr
-        WHERE tr.status = 'CONFIRMED'
-        AND NOT EXISTS (
-            SELECT 1 FROM TournamentParticipants tp 
-            WHERE tp.registration_id = tr.id AND tp.tournament_id = tr.tournament_id
-        )
-      `).run();
-
-      // Step 2: Create LeagueStandings for all participants
-      const standingsResult = await db.prepare(`
-        INSERT INTO LeagueStandings (participant_id, matches_played, wins, draws, losses, goal_difference, points)
-        SELECT 
-            tp.id as participant_id,
-            0 as matches_played,
-            0 as wins, 
-            0 as draws,
-            0 as losses,
-            0 as goal_difference,
-            0 as points
-        FROM TournamentParticipants tp
-        WHERE tp.status = 'ACTIVE'
-        AND NOT EXISTS (
-            SELECT 1 FROM LeagueStandings ls 
-            WHERE ls.participant_id = tp.id
-        )
-      `).run();
-
-      // Step 3: Get verification data
-      const verificationData = await db.prepare(`
-        SELECT 
-            tp.tournament_id,
-            COUNT(*) as participant_count,
-            GROUP_CONCAT(u.twitch_username) as usernames
-        FROM TournamentParticipants tp
-        JOIN Users u ON tp.user_id = u.id  
-        WHERE tp.status = 'ACTIVE'
-        GROUP BY tp.tournament_id
-        ORDER BY tp.tournament_id
-      `).all();
-
-      return c.json({ 
-        message: 'Migration completed successfully',
-        participants_created: participantsResult.meta?.changes || 0,
-        standings_created: standingsResult.meta?.changes || 0,
-        tournaments_data: verificationData.results || []
-      });
-
-    } catch (error: any) {
-      return c.json({ error: 'Migration failed', details: error.message }, 500);
-    }
-  }
-);
 
 // Admin creates a new tournament registration
 admin.post(
