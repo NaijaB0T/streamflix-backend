@@ -21,7 +21,7 @@ app.use('*', cors({
   origin: ['http://localhost:3000', 'http://localhost:5173', 'https://streamflix.femitaofeeq.com'], // Allow local development and production
   credentials: true, // Allow cookies to be sent
   allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Secret'],
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 }));
 
 app.get('/', (c) => {
