@@ -876,22 +876,37 @@ admin.post(
     z.object({
       twitch_id: z.string().min(1),
       twitch_username: z.string().min(1),
-      twitch_profile_image_url: z.string().url().optional(),
+      twitch_profile_image_url: z.string().optional().refine(
+        (val) => !val || val === '' || z.string().url().safeParse(val).success,
+        { message: "Must be a valid URL or empty string" }
+      ),
       points_balance: z.number().int().min(0).default(0),
       is_banned: z.number().int().min(0).max(1).default(0),
     })
   ),
   async (c) => {
     const { twitch_id, twitch_username, twitch_profile_image_url, points_balance, is_banned } = c.req.valid('json');
+    
+    console.log('Creating user with data:', { twitch_id, twitch_username, twitch_profile_image_url, points_balance, is_banned });
+    
     try {
+      // Handle empty string for profile image URL
+      const profileImageUrl = twitch_profile_image_url && twitch_profile_image_url.trim() !== '' ? twitch_profile_image_url : null;
+      
+      console.log('Processed profile image URL:', profileImageUrl);
+      
       const { meta } = await c.env.DB.prepare(
         'INSERT INTO Users (twitch_id, twitch_username, twitch_profile_image_url, points_balance, is_banned) VALUES (?, ?, ?, ?, ?)'
       )
-        .bind(twitch_id, twitch_username, twitch_profile_image_url, points_balance, is_banned)
+        .bind(twitch_id, twitch_username, profileImageUrl, points_balance, is_banned)
         .run();
-      const newUser = { id: meta.last_row_id, twitch_id, twitch_username, twitch_profile_image_url, points_balance, is_banned };
+      
+      const newUser = { id: meta.last_row_id, twitch_id, twitch_username, twitch_profile_image_url: profileImageUrl, points_balance, is_banned };
+      
+      console.log('User created successfully:', newUser);
       return c.json({ message: 'User created successfully', user: newUser }, 201);
     } catch (e: any) {
+      console.error('Failed to create user:', e);
       return c.json({ error: 'Failed to create user', details: e.message }, 500);
     }
   }
