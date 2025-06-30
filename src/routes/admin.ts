@@ -96,6 +96,70 @@ admin.post(
   }
 );
 
+// Save tournament fixtures to database
+admin.post(
+  '/:id/save-fixtures',
+  zValidator(
+    'param',
+    z.object({
+      id: z.string().regex(/^\d+$/),
+    })
+  ),
+  zValidator(
+    'json',
+    z.object({
+      fixtures: z.array(z.object({
+        homePlayerRegistrationId: z.number(),
+        awayPlayerRegistrationId: z.number(),
+        pot: z.string(),
+        phase: z.string().default('LEAGUE')
+      }))
+    })
+  ),
+  async (c) => {
+    const tournamentId = c.req.param('id');
+    const { fixtures } = c.req.valid('json');
+    const db = c.env.DB;
+
+    try {
+      // Delete existing fixtures for this tournament
+      await db.prepare('DELETE FROM Matches WHERE tournament_id = ?').bind(tournamentId).run();
+
+      // Insert new fixtures - using registration IDs to get user IDs
+      for (const fixture of fixtures) {
+        // Get user IDs from registration IDs
+        const homePlayerReg = await db.prepare(
+          'SELECT user_id FROM TournamentRegistrations WHERE id = ?'
+        ).bind(fixture.homePlayerRegistrationId).first();
+        
+        const awayPlayerReg = await db.prepare(
+          'SELECT user_id FROM TournamentRegistrations WHERE id = ?'
+        ).bind(fixture.awayPlayerRegistrationId).first();
+
+        if (homePlayerReg && awayPlayerReg) {
+          await db.prepare(
+            `INSERT INTO Matches 
+             (tournament_id, phase, status, player_a_user_id, player_b_user_id, scheduled_at) 
+             VALUES (?, ?, 'SCHEDULED', ?, ?, datetime('now', '+7 days'))`
+          ).bind(
+            tournamentId, 
+            fixture.phase, 
+            homePlayerReg.user_id, 
+            awayPlayerReg.user_id
+          ).run();
+        }
+      }
+
+      return c.json({ 
+        message: 'Fixtures saved successfully',
+        fixtures_count: fixtures.length 
+      });
+
+    } catch (error: any) {
+      return c.json({ error: 'Failed to save fixtures', details: error.message }, 500);
+    }
+  }
+);
 
 // Admin creates a new tournament registration
 admin.post(

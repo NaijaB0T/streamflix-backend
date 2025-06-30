@@ -148,7 +148,7 @@ tournaments.get(
   }
 );
 
-// Get tournament matches (public endpoint) - simplified for now
+// Get tournament matches (public endpoint) - includes player names
 tournaments.get(
   '/:id/matches',
   zValidator(
@@ -161,16 +161,35 @@ tournaments.get(
     const tournamentId = c.req.param('id');
 
     try {
-      // For now, return matches directly from the Matches table if they exist
       const matches = await c.env.DB.prepare(
         `SELECT 
-           m.id, m.phase, m.status, m.scheduled_at, m.player_a_score, m.player_b_score
+           m.id, m.phase, m.status, m.scheduled_at, m.player_a_score, m.player_b_score,
+           ua.twitch_username as player_a_username,
+           ub.twitch_username as player_b_username
          FROM Matches m
+         LEFT JOIN Users ua ON m.player_a_user_id = ua.id
+         LEFT JOIN Users ub ON m.player_b_user_id = ub.id
          WHERE m.tournament_id = ?
          ORDER BY m.scheduled_at`
       ).bind(tournamentId).all();
 
-      return c.json(matches.results || []);
+      // Format matches for frontend
+      const formattedMatches = (matches.results || []).map(match => ({
+        id: match.id,
+        phase: match.phase,
+        status: match.status,
+        scheduled_at: match.scheduled_at,
+        player_a_score: match.player_a_score,
+        player_b_score: match.player_b_score,
+        player_a: {
+          twitch_username: match.player_a_username
+        },
+        player_b: {
+          twitch_username: match.player_b_username
+        }
+      }));
+
+      return c.json(formattedMatches);
     } catch (error: any) {
       return c.json({ error: 'Failed to fetch tournament matches' }, 500);
     }
