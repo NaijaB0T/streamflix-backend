@@ -10,7 +10,7 @@ const auth = new Hono<{ Bindings: Bindings }>();
 auth.get('/login', (c) => {
   const twitchAuthUrl = new URL('https://id.twitch.tv/oauth2/authorize');
   twitchAuthUrl.searchParams.set('client_id', c.env.TWITCH_CLIENT_ID);
-  twitchAuthUrl.searchParams.set('redirect_uri', 'http://localhost:8787/api/auth/callback'); // Make sure this matches your wrangler dev port
+  twitchAuthUrl.searchParams.set('redirect_uri', 'https://streamflix-backend.femivideograph.workers.dev/api/auth/callback');
   twitchAuthUrl.searchParams.set('response_type', 'code');
   twitchAuthUrl.searchParams.set('scope', 'channel:read:subscriptions user:read:email');
 
@@ -36,7 +36,7 @@ auth.get('/callback', async (c) => {
       client_secret: c.env.TWITCH_CLIENT_SECRET,
       code: code,
       grant_type: 'authorization_code',
-      redirect_uri: 'http://localhost:8787/api/auth/callback',
+      redirect_uri: 'https://streamflix-backend.femivideograph.workers.dev/api/auth/callback',
     }),
   });
 
@@ -106,7 +106,7 @@ auth.get('/callback', async (c) => {
   });
   
 
-  return c.redirect('/'); // Redirect to the frontend
+  return c.redirect('http://localhost:3000'); // Redirect to the frontend (update this when you deploy frontend)
 });
 
 export default auth;
