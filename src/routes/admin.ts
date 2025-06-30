@@ -113,8 +113,8 @@ admin.post(
       for (const participant of participants.results || []) {
         await db.prepare(
           `INSERT INTO LeagueStandings 
-           (participant_id, matches_played, wins, draws, losses, goals_for, goals_against, goal_difference, points) 
-           VALUES (?, 0, 0, 0, 0, 0, 0, 0, 0)`
+           (participant_id, matches_played, wins, draws, losses, goal_difference, points) 
+           VALUES (?, 0, 0, 0, 0, 0, 0)`
         ).bind(participant.id).run();
       }
     }
@@ -176,8 +176,8 @@ admin.post(
         if (!existingStanding) {
           await db.prepare(
             `INSERT INTO LeagueStandings 
-             (participant_id, matches_played, wins, draws, losses, goals_for, goals_against, goal_difference, points) 
-             VALUES (?, 0, 0, 0, 0, 0, 0, 0, 0)`
+             (participant_id, matches_played, wins, draws, losses, goal_difference, points) 
+             VALUES (?, 0, 0, 0, 0, 0, 0)`
           ).bind(participant.id).run();
         }
       }
