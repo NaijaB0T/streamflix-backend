@@ -123,68 +123,66 @@ admin.post(
   }
 );
 
-// Migrate existing tournament data from admin tables to user-facing tables
+// Simple SQL migration for all tournaments
 admin.post(
-  '/:id/migrate-data',
-  zValidator(
-    'param',
-    z.object({
-      id: z.string().regex(/^\d+$/),
-    })
-  ),
+  '/migrate-all-data',
   async (c) => {
-    const tournamentId = c.req.param('id');
     const db = c.env.DB;
 
     try {
-      // 1. Get all confirmed registrations for this tournament
-      const confirmedRegistrations = await db.prepare(
-        `SELECT id, user_id FROM TournamentRegistrations 
-         WHERE tournament_id = ? AND status = 'CONFIRMED'`
-      ).bind(tournamentId).all();
+      // Step 1: Create TournamentParticipants for all confirmed registrations
+      const participantsResult = await db.prepare(`
+        INSERT INTO TournamentParticipants (registration_id, user_id, tournament_id, status)
+        SELECT 
+            tr.id as registration_id,
+            tr.user_id,
+            tr.tournament_id,
+            'ACTIVE' as status
+        FROM TournamentRegistrations tr
+        WHERE tr.status = 'CONFIRMED'
+        AND NOT EXISTS (
+            SELECT 1 FROM TournamentParticipants tp 
+            WHERE tp.registration_id = tr.id AND tp.tournament_id = tr.tournament_id
+        )
+      `).run();
 
-      if (!confirmedRegistrations.results || confirmedRegistrations.results.length === 0) {
-        return c.json({ message: 'No confirmed registrations found to migrate' });
-      }
+      // Step 2: Create LeagueStandings for all participants
+      const standingsResult = await db.prepare(`
+        INSERT INTO LeagueStandings (participant_id, matches_played, wins, draws, losses, goal_difference, points)
+        SELECT 
+            tp.id as participant_id,
+            0 as matches_played,
+            0 as wins, 
+            0 as draws,
+            0 as losses,
+            0 as goal_difference,
+            0 as points
+        FROM TournamentParticipants tp
+        WHERE tp.status = 'ACTIVE'
+        AND NOT EXISTS (
+            SELECT 1 FROM LeagueStandings ls 
+            WHERE ls.participant_id = tp.id
+        )
+      `).run();
 
-      // 2. Create TournamentParticipants for each confirmed registration (if not exists)
-      for (const registration of confirmedRegistrations.results) {
-        // Check if participant already exists
-        const existingParticipant = await db.prepare(
-          'SELECT id FROM TournamentParticipants WHERE registration_id = ? AND tournament_id = ?'
-        ).bind(registration.id, tournamentId).first();
-
-        if (!existingParticipant) {
-          await db.prepare(
-            'INSERT INTO TournamentParticipants (registration_id, user_id, tournament_id, status) VALUES (?, ?, ?, ?)'
-          ).bind(registration.id, registration.user_id, tournamentId, 'ACTIVE').run();
-        }
-      }
-
-      // 3. Get all participants for this tournament
-      const participants = await db.prepare(
-        `SELECT id FROM TournamentParticipants 
-         WHERE tournament_id = ? AND status = 'ACTIVE'`
-      ).bind(tournamentId).all();
-
-      // 4. Create initial league standings for each participant (if not exists)
-      for (const participant of participants.results || []) {
-        const existingStanding = await db.prepare(
-          'SELECT id FROM LeagueStandings WHERE participant_id = ?'
-        ).bind(participant.id).first();
-
-        if (!existingStanding) {
-          await db.prepare(
-            `INSERT INTO LeagueStandings 
-             (participant_id, matches_played, wins, draws, losses, goal_difference, points) 
-             VALUES (?, 0, 0, 0, 0, 0, 0)`
-          ).bind(participant.id).run();
-        }
-      }
+      // Step 3: Get verification data
+      const verificationData = await db.prepare(`
+        SELECT 
+            tp.tournament_id,
+            COUNT(*) as participant_count,
+            GROUP_CONCAT(u.twitch_username) as usernames
+        FROM TournamentParticipants tp
+        JOIN Users u ON tp.user_id = u.id  
+        WHERE tp.status = 'ACTIVE'
+        GROUP BY tp.tournament_id
+        ORDER BY tp.tournament_id
+      `).all();
 
       return c.json({ 
-        message: 'Data migration completed successfully',
-        migrated_participants: confirmedRegistrations.results.length 
+        message: 'Migration completed successfully',
+        participants_created: participantsResult.meta?.changes || 0,
+        standings_created: standingsResult.meta?.changes || 0,
+        tournaments_data: verificationData.results || []
       });
 
     } catch (error: any) {
