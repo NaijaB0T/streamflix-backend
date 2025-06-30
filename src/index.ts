@@ -18,7 +18,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 // Add CORS middleware
 app.use('*', cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173', 'https://streamflix-vite-frontend.pages.dev'], // Allow local development and production
+  origin: ['http://localhost:3000', 'http://localhost:5173', 'https://streamflix.femitaofeeq.com'], // Allow local development and production
   credentials: true, // Allow cookies to be sent
   allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Secret'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

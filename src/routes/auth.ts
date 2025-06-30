@@ -99,7 +99,7 @@ auth.get('/callback', async (c) => {
 
   // For cross-domain setup, send token as URL parameter instead of cookie
   // The frontend will then store it in localStorage and send it in headers
-  const frontendUrl = new URL('https://streamflix-vite-frontend.pages.dev');
+  const frontendUrl = new URL('https://streamflix.femitaofeeq.com');
   frontendUrl.searchParams.set('token', token);
   
   return c.redirect(frontendUrl.toString());
