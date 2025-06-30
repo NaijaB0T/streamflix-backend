@@ -230,4 +230,35 @@ tournaments.get(
   }
 );
 
+// Get tournament registration count (public endpoint)
+tournaments.get(
+  '/:id/registration-count',
+  zValidator(
+    'param',
+    z.object({
+      id: z.string().regex(/^\d+$/),
+    })
+  ),
+  async (c) => {
+    const tournamentId = c.req.param('id');
+
+    try {
+      const registrationCount = await c.env.DB.prepare(
+        'SELECT COUNT(*) as count FROM TournamentRegistrations WHERE tournament_id = ?'
+      ).bind(tournamentId).first();
+
+      const confirmedCount = await c.env.DB.prepare(
+        'SELECT COUNT(*) as count FROM TournamentRegistrations WHERE tournament_id = ? AND status = ?'
+      ).bind(tournamentId, 'CONFIRMED').first();
+
+      return c.json({
+        total_registrations: registrationCount?.count || 0,
+        confirmed_participants: confirmedCount?.count || 0
+      });
+    } catch (error: any) {
+      return c.json({ error: 'Failed to fetch registration count' }, 500);
+    }
+  }
+);
+
 export default tournaments;
