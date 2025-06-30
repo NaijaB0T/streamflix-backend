@@ -123,6 +123,76 @@ admin.post(
   }
 );
 
+// Migrate existing tournament data from admin tables to user-facing tables
+admin.post(
+  '/:id/migrate-data',
+  zValidator(
+    'param',
+    z.object({
+      id: z.string().regex(/^\d+$/),
+    })
+  ),
+  async (c) => {
+    const tournamentId = c.req.param('id');
+    const db = c.env.DB;
+
+    try {
+      // 1. Get all confirmed registrations for this tournament
+      const confirmedRegistrations = await db.prepare(
+        `SELECT id, user_id FROM TournamentRegistrations 
+         WHERE tournament_id = ? AND status = 'CONFIRMED'`
+      ).bind(tournamentId).all();
+
+      if (!confirmedRegistrations.results || confirmedRegistrations.results.length === 0) {
+        return c.json({ message: 'No confirmed registrations found to migrate' });
+      }
+
+      // 2. Create TournamentParticipants for each confirmed registration (if not exists)
+      for (const registration of confirmedRegistrations.results) {
+        // Check if participant already exists
+        const existingParticipant = await db.prepare(
+          'SELECT id FROM TournamentParticipants WHERE registration_id = ? AND tournament_id = ?'
+        ).bind(registration.id, tournamentId).first();
+
+        if (!existingParticipant) {
+          await db.prepare(
+            'INSERT INTO TournamentParticipants (registration_id, user_id, tournament_id, status) VALUES (?, ?, ?, ?)'
+          ).bind(registration.id, registration.user_id, tournamentId, 'ACTIVE').run();
+        }
+      }
+
+      // 3. Get all participants for this tournament
+      const participants = await db.prepare(
+        `SELECT id FROM TournamentParticipants 
+         WHERE tournament_id = ? AND status = 'ACTIVE'`
+      ).bind(tournamentId).all();
+
+      // 4. Create initial league standings for each participant (if not exists)
+      for (const participant of participants.results || []) {
+        const existingStanding = await db.prepare(
+          'SELECT id FROM LeagueStandings WHERE participant_id = ?'
+        ).bind(participant.id).first();
+
+        if (!existingStanding) {
+          await db.prepare(
+            `INSERT INTO LeagueStandings 
+             (participant_id, matches_played, wins, draws, losses, goals_for, goals_against, goal_difference, points) 
+             VALUES (?, 0, 0, 0, 0, 0, 0, 0, 0)`
+          ).bind(participant.id).run();
+        }
+      }
+
+      return c.json({ 
+        message: 'Data migration completed successfully',
+        migrated_participants: confirmedRegistrations.results.length 
+      });
+
+    } catch (error: any) {
+      return c.json({ error: 'Migration failed', details: error.message }, 500);
+    }
+  }
+);
+
 // Admin creates a new tournament registration
 admin.post(
   '/registrations',
