@@ -365,6 +365,18 @@ admin.post(
   }
 );
 
+// Admin gets all users
+admin.get('/users', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare(
+      'SELECT id, twitch_id, twitch_username, twitch_profile_image_url, points_balance, is_banned, created_at, updated_at FROM Users ORDER BY created_at DESC'
+    ).all();
+    return c.json(results);
+  } catch (e: any) {
+    return c.json({ error: 'Failed to fetch users', details: e.message }, 500);
+  }
+});
+
 // Admin creates a new user
 admin.post(
   '/users',
