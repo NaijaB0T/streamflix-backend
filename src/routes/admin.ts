@@ -515,7 +515,7 @@ admin.patch(
         status: z.enum(['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED']).optional(),
         player_a_score: z.number().int().min(0).optional(),
         player_b_score: z.number().int().min(0).optional(),
-        winner_participant_id: z.number().int().positive().nullable().optional(),
+        winner_participant_id: z.union([z.number().int().positive(), z.null()]).optional(),
       });
       
       updates = schema.parse(requestData);
