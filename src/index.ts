@@ -29,7 +29,7 @@ app.get('/', (c) => {
   return c.text('Hello from StreamFlix API!');
 });
 
-// Test score endpoint with full Durable Object integration
+// Test score endpoint with full Durable Object integration AND database persistence
 app.post('/api/admin/matches/:id/score', async (c) => {
   console.log('=== REAL-TIME SCORE ENDPOINT HIT ===');
   const matchId = c.req.param('id');
@@ -45,7 +45,28 @@ app.post('/api/admin/matches/:id/score', async (c) => {
     console.log('Match ID:', matchId);
     console.log('Score Updates:', updates);
     
-    // Get the Durable Object for this match
+    // 1. Update the database first for persistence
+    const updateFields = [];
+    const values = [];
+    
+    if (updates.player_a_score !== undefined) {
+      updateFields.push('player_a_score = ?');
+      values.push(updates.player_a_score);
+    }
+    if (updates.player_b_score !== undefined) {
+      updateFields.push('player_b_score = ?');
+      values.push(updates.player_b_score);
+    }
+    
+    if (updateFields.length > 0) {
+      values.push(matchId);
+      await c.env.DB.prepare(
+        `UPDATE Matches SET ${updateFields.join(', ')} WHERE id = ?`
+      ).bind(...values).run();
+      console.log('✅ Database updated with new scores');
+    }
+    
+    // 2. Update the Durable Object for real-time broadcasting
     const doId = c.env.MATCH_STATE_DO.idFromName(`match-${matchId}`);
     const doStub = c.env.MATCH_STATE_DO.get(doId);
     
@@ -67,7 +88,7 @@ app.post('/api/admin/matches/:id/score', async (c) => {
     
     return c.json({ 
       success: true, 
-      message: 'Real-time score update sent!', 
+      message: 'Real-time score update sent and persisted!', 
       matchId, 
       updates,
       doResult: result
