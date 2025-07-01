@@ -574,7 +574,7 @@ admin.patch('/matches/:id', async (c) => {
     console.error('Match update error:', error);
     return c.json({ error: 'Failed to update match', details: error.message }, 500);
   }
-);
+});
 
 // Admin deletes a tournament
 admin.delete(
