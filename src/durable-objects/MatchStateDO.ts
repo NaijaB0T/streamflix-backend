@@ -13,6 +13,7 @@ export class MatchStateDO implements DurableObject {
   env: Bindings;
   websockets: WebSocket[] = [];
   currentVoteEvent: VoteEvent | null = null;
+  currentScores: { player_a_score: number; player_b_score: number } = { player_a_score: 0, player_b_score: 0 };
 
   constructor(state: DurableObjectState, env: Bindings) {
     this.state = state;
@@ -58,6 +59,32 @@ export class MatchStateDO implements DurableObject {
       }
     }
 
+    if (url.pathname.endsWith('/update-score') && request.method === 'POST') {
+      try {
+        const updates = await request.json() as { player_a_score?: number; player_b_score?: number };
+        console.log("Received score update in DO:", updates);
+        
+        // Update scores
+        if (updates.player_a_score !== undefined) {
+          this.currentScores.player_a_score = updates.player_a_score;
+        }
+        if (updates.player_b_score !== undefined) {
+          this.currentScores.player_b_score = updates.player_b_score;
+        }
+        
+        // Broadcast score update to all connected clients
+        this.broadcast({ 
+          type: 'SCORE_UPDATE', 
+          scores: this.currentScores 
+        });
+        
+        return new Response(JSON.stringify({ success: true, scores: this.currentScores }));
+      } catch (e: any) {
+        console.error("Error in update-score handler:", e.stack);
+        return new Response("Error processing score update", { status: 500 });
+      }
+    }
+
     return new Response("Not found", { status: 404 });
   }
 
@@ -69,6 +96,9 @@ export class MatchStateDO implements DurableObject {
     if (this.currentVoteEvent) {
       server.send(JSON.stringify({ type: 'VOTE_STARTED', event: this.currentVoteEvent }));
     }
+    
+    // Send current scores to new connection
+    server.send(JSON.stringify({ type: 'SCORE_UPDATE', scores: this.currentScores }));
 
     server.addEventListener("close", () => {
       this.websockets = this.websockets.filter(ws => ws !== server);

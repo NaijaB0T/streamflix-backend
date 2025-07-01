@@ -9,6 +9,23 @@ const admin = new Hono<{ Bindings: Bindings }>();
 
 admin.use('*', adminAuth);
 
+// Test endpoint to verify route is working
+admin.post('/matches/:id/score', async (c) => {
+  console.log('Score update endpoint hit!');
+  const matchId = c.req.param('id');
+  const updates = await c.req.json();
+  
+  console.log('Match ID:', matchId);
+  console.log('Updates:', updates);
+  
+  return c.json({ 
+    success: true, 
+    message: 'Score endpoint working', 
+    matchId, 
+    updates 
+  });
+});
+
 // Admin creates a new tournament
 admin.post(
   '/tournaments',
