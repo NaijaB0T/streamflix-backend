@@ -477,9 +477,7 @@ admin.post(
 );
 
 // Admin updates a match
-admin.patch(
-  '/matches/:id',
-  async (c) => {
+admin.patch('/matches/:id', adminAuth, async (c) => {
     const matchId = c.req.param('id');
     
     // Validate matchId parameter
@@ -517,7 +515,8 @@ admin.patch(
       }
       
     } catch (error) {
-      return c.json({ error: 'Invalid JSON in request body' }, 400);
+      console.error('JSON parse error:', error);
+      return c.json({ error: 'Invalid JSON in request body', details: error.message }, 400);
     }
     
     try {

@@ -29,6 +29,22 @@ app.get('/', (c) => {
   return c.text('Hello from StreamFlix API!');
 });
 
+// Test endpoint for match updates (bypassing admin router)
+app.patch('/api/admin/matches/:id', async (c) => {
+  const matchId = c.req.param('id');
+  console.log('Direct patch endpoint hit, matchId:', matchId);
+  
+  try {
+    const updates = await c.req.json();
+    console.log('Direct endpoint - received updates:', updates);
+    
+    return c.json({ success: true, message: 'Test endpoint works', data: updates });
+  } catch (error) {
+    console.error('Direct endpoint error:', error);
+    return c.json({ error: 'Test endpoint failed', details: error.message }, 400);
+  }
+});
+
 // Modular routes
 app.route('/api/auth', auth);
 app.route('/api/tournaments', tournaments);
