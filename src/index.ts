@@ -12,6 +12,7 @@ import tournaments from './routes/tournaments';
 import users from './routes/users';
 import webhooks from './routes/webhooks';
 import notifications from './routes/notifications';
+import extension from './routes/extension';
 
 import { MatchStateDO, UserSessionDO } from './objects';
 
@@ -21,7 +22,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 app.use('*', cors({
   origin: ['http://localhost:3000', 'http://localhost:5173', 'https://streamflix.femitaofeeq.com'], // Allow local development and production
   credentials: true, // Allow cookies to be sent
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Secret'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Secret', 'X-Extension-User-ID', 'X-Extension-Channel-ID'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 }));
 
@@ -159,6 +160,7 @@ app.route('/api/admin', admin);
 app.route('/api/webhooks', webhooks);
 app.route('/api/internal', internal);
 app.route('/api/notifications', notifications);
+app.route('/api/extension', extension);
 
 // Default export for the fetch handler
 export default {
