@@ -42,7 +42,7 @@ tournaments.get('/matches/live', async (c) => {
       SELECT 
         m.id, m.tournament_id, m.phase, m.status, 
         m.player_a_score, m.player_b_score, m.scheduled_at,
-        m.winner_participant_id,
+        m.winner_participant_id, m.player_a_participant_id, m.player_b_participant_id,
         ua.twitch_username as player_a_username,
         ub.twitch_username as player_b_username,
         t.name as tournament_name

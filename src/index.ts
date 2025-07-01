@@ -56,6 +56,30 @@ app.get('/api/test', (c) => {
   return c.json({ message: 'Test endpoint works!' });
 });
 
+// WebSocket endpoint for match real-time updates
+app.get('/api/matches/:id/connect', async (c) => {
+  const matchId = c.req.param('id');
+  
+  // Validate matchId
+  if (!matchId || !/^\d+$/.test(matchId)) {
+    return c.json({ error: 'Invalid match ID' }, 400);
+  }
+  
+  try {
+    // Get the Durable Object for this match
+    const doId = c.env.MATCH_STATE_DO.idFromName(`match-${matchId}`);
+    const doStub = c.env.MATCH_STATE_DO.get(doId);
+    
+    // Forward the WebSocket connection to the Durable Object
+    return doStub.fetch(`https://match-state-do/connect`, {
+      headers: c.req.headers
+    });
+  } catch (error: any) {
+    console.error('WebSocket connection error:', error);
+    return c.json({ error: 'Failed to connect to match updates' }, 500);
+  }
+});
+
 // Modular routes  
 app.route('/api/auth', auth);
 app.route('/api/tournaments', tournaments);
