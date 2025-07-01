@@ -501,25 +501,29 @@ admin.patch(
       return c.json({ error: 'Invalid JSON in request body' }, 400);
     }
     
-    // Re-create the request with the raw body for validation
-    const newRequest = new Request(c.req.url, {
-      method: c.req.method,
-      headers: c.req.headers,
-      body: rawBody
-    });
+    // Clean up the data - remove null winner_participant_id before validation
+    const cleanedData = { ...requestData };
+    if (cleanedData.winner_participant_id === null) {
+      delete cleanedData.winner_participant_id;
+    }
     
     let updates;
     try {
-      // Validate manually
+      // Validate manually with cleaned data
       const schema = z.object({
         status: z.enum(['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED']).optional(),
         player_a_score: z.number().int().min(0).optional(),
         player_b_score: z.number().int().min(0).optional(),
-        winner_participant_id: z.union([z.number().int().positive(), z.null()]).optional(),
+        winner_participant_id: z.number().int().positive().optional(),
       });
       
-      updates = schema.parse(requestData);
+      updates = schema.parse(cleanedData);
       console.log('Validated updates:', updates);
+      
+      // Add back null winner_participant_id if it was in the original request
+      if (requestData.winner_participant_id === null) {
+        updates.winner_participant_id = null;
+      }
     } catch (validationError) {
       console.log('Validation error:', validationError);
       return c.json({ 
