@@ -479,24 +479,55 @@ admin.post(
 // Admin updates a match
 admin.patch(
   '/matches/:id',
-  zValidator(
-    'param',
-    z.object({
-      id: z.string().regex(/^\d+$/),
-    })
-  ),
-  zValidator(
-    'json',
-    z.object({
-      status: z.enum(['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED']).optional(),
-      player_a_score: z.number().int().min(0).optional(),
-      player_b_score: z.number().int().min(0).optional(),
-      winner_participant_id: z.number().int().positive().nullable().optional(),
-    })
-  ),
   async (c) => {
     const matchId = c.req.param('id');
-    const updates = c.req.valid('json');
+    
+    // Validate matchId parameter
+    if (!matchId || !/^\d+$/.test(matchId)) {
+      return c.json({ error: 'Invalid match ID' }, 400);
+    }
+    
+    // Log the raw request body for debugging
+    const rawBody = await c.req.text();
+    console.log('Raw request body:', rawBody);
+    
+    // Parse JSON manually to see what we're getting
+    let requestData;
+    try {
+      requestData = JSON.parse(rawBody);
+      console.log('Parsed request data:', requestData);
+    } catch (parseError) {
+      console.log('JSON parse error:', parseError);
+      return c.json({ error: 'Invalid JSON in request body' }, 400);
+    }
+    
+    // Re-create the request with the raw body for validation
+    const newRequest = new Request(c.req.url, {
+      method: c.req.method,
+      headers: c.req.headers,
+      body: rawBody
+    });
+    
+    let updates;
+    try {
+      // Validate manually
+      const schema = z.object({
+        status: z.enum(['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED']).optional(),
+        player_a_score: z.number().int().min(0).optional(),
+        player_b_score: z.number().int().min(0).optional(),
+        winner_participant_id: z.number().int().positive().nullable().optional(),
+      });
+      
+      updates = schema.parse(requestData);
+      console.log('Validated updates:', updates);
+    } catch (validationError) {
+      console.log('Validation error:', validationError);
+      return c.json({ 
+        error: 'Validation failed', 
+        details: validationError.errors || validationError.message,
+        received_data: requestData 
+      }, 400);
+    }
     
     try {
       // Build the SQL update query dynamically based on provided fields
