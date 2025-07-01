@@ -476,6 +476,93 @@ admin.post(
   }
 );
 
+// Admin updates a match
+admin.patch(
+  '/matches/:id',
+  zValidator(
+    'param',
+    z.object({
+      id: z.string().regex(/^\d+$/),
+    })
+  ),
+  zValidator(
+    'json',
+    z.object({
+      status: z.enum(['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED']).optional(),
+      player_a_score: z.number().int().min(0).optional(),
+      player_b_score: z.number().int().min(0).optional(),
+      winner_participant_id: z.number().int().positive().optional(),
+    })
+  ),
+  async (c) => {
+    const matchId = c.req.param('id');
+    const updates = c.req.valid('json');
+    
+    try {
+      // Build the SQL update query dynamically based on provided fields
+      const setClause = [];
+      const values = [];
+      
+      if (updates.status !== undefined) {
+        setClause.push('status = ?');
+        values.push(updates.status);
+      }
+      
+      if (updates.player_a_score !== undefined) {
+        setClause.push('player_a_score = ?');
+        values.push(updates.player_a_score);
+      }
+      
+      if (updates.player_b_score !== undefined) {
+        setClause.push('player_b_score = ?');
+        values.push(updates.player_b_score);
+      }
+      
+      if (updates.winner_participant_id !== undefined) {
+        setClause.push('winner_participant_id = ?');
+        values.push(updates.winner_participant_id);
+      }
+      
+      if (setClause.length === 0) {
+        return c.json({ error: 'No valid update fields provided' }, 400);
+      }
+      
+      values.push(matchId);
+      
+      const query = `UPDATE Matches SET ${setClause.join(', ')} WHERE id = ?`;
+      await c.env.DB.prepare(query).bind(...values).run();
+      
+      // If match is completed, update league standings
+      if (updates.status === 'COMPLETED' && updates.winner_participant_id) {
+        const match = await c.env.DB.prepare(
+          'SELECT tournament_id, player_a_participant_id, player_b_participant_id FROM Matches WHERE id = ?'
+        ).bind(matchId).first();
+        
+        if (match) {
+          // Update standings for both players
+          const updateStandings = async (participantId: number, isWinner: boolean, isDraw: boolean) => {
+            const updateQuery = isDraw 
+              ? 'INSERT OR REPLACE INTO LeagueStandings (participant_id, points, matches_played, draws) VALUES (?, COALESCE((SELECT points FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT matches_played FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT draws FROM LeagueStandings WHERE participant_id = ?), 0) + 1)'
+              : isWinner
+                ? 'INSERT OR REPLACE INTO LeagueStandings (participant_id, points, matches_played, wins) VALUES (?, COALESCE((SELECT points FROM LeagueStandings WHERE participant_id = ?), 0) + 3, COALESCE((SELECT matches_played FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT wins FROM LeagueStandings WHERE participant_id = ?), 0) + 1)'
+                : 'INSERT OR REPLACE INTO LeagueStandings (participant_id, points, matches_played, losses) VALUES (?, COALESCE((SELECT points FROM LeagueStandings WHERE participant_id = ?), 0), COALESCE((SELECT matches_played FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT losses FROM LeagueStandings WHERE participant_id = ?), 0) + 1)';
+            
+            await c.env.DB.prepare(updateQuery).bind(participantId, participantId, participantId, participantId).run();
+          };
+          
+          const isDraw = updates.player_a_score === updates.player_b_score;
+          await updateStandings(match.player_a_participant_id, !isDraw && updates.winner_participant_id === match.player_a_participant_id, isDraw);
+          await updateStandings(match.player_b_participant_id, !isDraw && updates.winner_participant_id === match.player_b_participant_id, isDraw);
+        }
+      }
+      
+      return c.json({ message: 'Match updated successfully' });
+    } catch (e: any) {
+      return c.json({ error: 'Failed to update match', details: e.message }, 500);
+    }
+  }
+);
+
 // Admin deletes a tournament
 admin.delete(
   '/tournaments/:id',
