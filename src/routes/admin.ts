@@ -454,7 +454,7 @@ admin.post(
     z.object({
       tournament_id: z.number().int().positive(),
       phase: z.enum(['LEAGUE', 'KNOCKOUT']),
-      status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']),
+      status: z.enum(['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED']),
       player_a_participant_id: z.number().int().positive(),
       player_b_participant_id: z.number().int().positive(),
       scheduled_at: z.string().datetime(),
@@ -491,7 +491,7 @@ admin.patch(
       status: z.enum(['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED']).optional(),
       player_a_score: z.number().int().min(0).optional(),
       player_b_score: z.number().int().min(0).optional(),
-      winner_participant_id: z.number().int().positive().optional(),
+      winner_participant_id: z.number().int().positive().nullable().optional(),
     })
   ),
   async (c) => {
