@@ -35,6 +35,40 @@ tournaments.get('/live', async (c) => {
   }
 });
 
+// Get live and recent matches across all tournaments
+tournaments.get('/matches/live', async (c) => {
+  try {
+    const liveMatches = await c.env.DB.prepare(`
+      SELECT 
+        m.id, m.tournament_id, m.phase, m.status, 
+        m.player_a_score, m.player_b_score, m.scheduled_at,
+        m.winner_participant_id,
+        ua.twitch_username as player_a_username,
+        ub.twitch_username as player_b_username,
+        t.name as tournament_name
+      FROM Matches m
+      LEFT JOIN TournamentParticipants pa ON m.player_a_participant_id = pa.id
+      LEFT JOIN Users ua ON pa.user_id = ua.id
+      LEFT JOIN TournamentParticipants pb ON m.player_b_participant_id = pb.id  
+      LEFT JOIN Users ub ON pb.user_id = ub.id
+      LEFT JOIN Tournaments t ON m.tournament_id = t.id
+      WHERE m.status IN ('LIVE', 'SCHEDULED', 'COMPLETED')
+      ORDER BY 
+        CASE m.status 
+          WHEN 'LIVE' THEN 1 
+          WHEN 'SCHEDULED' THEN 2 
+          ELSE 3 
+        END,
+        m.scheduled_at DESC
+      LIMIT 20
+    `).all();
+    
+    return c.json(liveMatches.results || []);
+  } catch (error: any) {
+    return c.json({ error: 'Failed to fetch live matches' }, 500);
+  }
+});
+
 // User registers for a tournament
 tournaments.post(
   '/:id/register',
