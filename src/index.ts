@@ -29,9 +29,9 @@ app.get('/', (c) => {
   return c.text('Hello from StreamFlix API!');
 });
 
-// Test score endpoint (bypassing admin router)
+// Test score endpoint with exact path match
 app.post('/api/admin/matches/:id/score', async (c) => {
-  console.log('Direct score endpoint hit!');
+  console.log('=== SCORE ENDPOINT HIT ===');
   const matchId = c.req.param('id');
   
   try {
@@ -41,7 +41,7 @@ app.post('/api/admin/matches/:id/score', async (c) => {
     
     return c.json({ 
       success: true, 
-      message: 'Direct score endpoint working', 
+      message: 'Score endpoint working!', 
       matchId, 
       updates 
     });
@@ -51,10 +51,16 @@ app.post('/api/admin/matches/:id/score', async (c) => {
   }
 });
 
-// Modular routes
+// Simple test endpoint
+app.get('/api/test', (c) => {
+  return c.json({ message: 'Test endpoint works!' });
+});
+
+// Modular routes  
 app.route('/api/auth', auth);
 app.route('/api/tournaments', tournaments);
 app.route('/api/users', users);
+// NOTE: admin route is AFTER the specific score endpoint
 app.route('/api/admin', admin);
 app.route('/api/webhooks', webhooks);
 app.route('/api/internal', internal);
