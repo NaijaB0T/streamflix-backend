@@ -476,8 +476,9 @@ admin.post(
   }
 );
 
-// Admin updates a match
-admin.patch('/matches/:id', adminAuth, async (c) => {
+// Admin updates a match  
+admin.patch('/matches/:id', async (c) => {
+  try {
     const matchId = c.req.param('id');
     
     // Validate matchId parameter
@@ -485,102 +486,76 @@ admin.patch('/matches/:id', adminAuth, async (c) => {
       return c.json({ error: 'Invalid match ID' }, 400);
     }
     
-    let updates;
-    try {
-      updates = await c.req.json();
-      console.log('Received updates:', updates);
-      
-      // Simple validation without Zod for now
-      const allowedFields = ['status', 'player_a_score', 'player_b_score', 'winner_participant_id'];
-      const validStatuses = ['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED'];
-      
-      for (const [key, value] of Object.entries(updates)) {
-        if (!allowedFields.includes(key)) {
-          return c.json({ error: `Invalid field: ${key}` }, 400);
-        }
-        
-        if (key === 'status' && !validStatuses.includes(value)) {
-          return c.json({ error: `Invalid status: ${value}` }, 400);
-        }
-        
-        if ((key === 'player_a_score' || key === 'player_b_score') && 
-            (typeof value !== 'number' || value < 0 || !Number.isInteger(value))) {
-          return c.json({ error: `Invalid ${key}: must be a non-negative integer` }, 400);
-        }
-        
-        if (key === 'winner_participant_id' && value !== null && 
-            (typeof value !== 'number' || value <= 0 || !Number.isInteger(value))) {
-          return c.json({ error: `Invalid winner_participant_id: must be a positive integer or null` }, 400);
-        }
-      }
-      
-    } catch (error) {
-      console.error('JSON parse error:', error);
-      return c.json({ error: 'Invalid JSON in request body', details: error.message }, 400);
+    // Check admin auth
+    const secret = c.req.header('X-Admin-Secret');
+    if (!secret || secret !== c.env.ADMIN_SECRET) {
+      return c.json({ error: 'Unauthorized' }, 401);
     }
     
-    try {
-      // Build the SQL update query dynamically based on provided fields
-      const setClause = [];
-      const values = [];
-      
-      if (updates.status !== undefined) {
-        setClause.push('status = ?');
-        values.push(updates.status);
-      }
-      
-      if (updates.player_a_score !== undefined) {
-        setClause.push('player_a_score = ?');
-        values.push(updates.player_a_score);
-      }
-      
-      if (updates.player_b_score !== undefined) {
-        setClause.push('player_b_score = ?');
-        values.push(updates.player_b_score);
-      }
-      
-      if (updates.winner_participant_id !== undefined) {
-        setClause.push('winner_participant_id = ?');
-        values.push(updates.winner_participant_id);
-      }
-      
-      if (setClause.length === 0) {
-        return c.json({ error: 'No valid update fields provided' }, 400);
-      }
-      
-      values.push(matchId);
-      
-      const query = `UPDATE Matches SET ${setClause.join(', ')} WHERE id = ?`;
-      await c.env.DB.prepare(query).bind(...values).run();
-      
-      // If match is completed, update league standings
-      if (updates.status === 'COMPLETED' && updates.winner_participant_id) {
-        const match = await c.env.DB.prepare(
-          'SELECT tournament_id, player_a_participant_id, player_b_participant_id FROM Matches WHERE id = ?'
-        ).bind(matchId).first();
-        
-        if (match) {
-          // Update standings for both players
-          const updateStandings = async (participantId: number, isWinner: boolean, isDraw: boolean) => {
-            const updateQuery = isDraw 
-              ? 'INSERT OR REPLACE INTO LeagueStandings (participant_id, points, matches_played, draws) VALUES (?, COALESCE((SELECT points FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT matches_played FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT draws FROM LeagueStandings WHERE participant_id = ?), 0) + 1)'
-              : isWinner
-                ? 'INSERT OR REPLACE INTO LeagueStandings (participant_id, points, matches_played, wins) VALUES (?, COALESCE((SELECT points FROM LeagueStandings WHERE participant_id = ?), 0) + 3, COALESCE((SELECT matches_played FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT wins FROM LeagueStandings WHERE participant_id = ?), 0) + 1)'
-                : 'INSERT OR REPLACE INTO LeagueStandings (participant_id, points, matches_played, losses) VALUES (?, COALESCE((SELECT points FROM LeagueStandings WHERE participant_id = ?), 0), COALESCE((SELECT matches_played FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT losses FROM LeagueStandings WHERE participant_id = ?), 0) + 1)';
-            
-            await c.env.DB.prepare(updateQuery).bind(participantId, participantId, participantId, participantId).run();
-          };
-          
-          const isDraw = updates.player_a_score === updates.player_b_score;
-          await updateStandings(match.player_a_participant_id, !isDraw && updates.winner_participant_id === match.player_a_participant_id, isDraw);
-          await updateStandings(match.player_b_participant_id, !isDraw && updates.winner_participant_id === match.player_b_participant_id, isDraw);
-        }
-      }
-      
-      return c.json({ message: 'Match updated successfully' });
-    } catch (e: any) {
-      return c.json({ error: 'Failed to update match', details: e.message }, 500);
+    const updates = await c.req.json();
+    console.log('Admin match update - received updates:', updates);
+    
+    // Build the SQL update query dynamically based on provided fields
+    const setClause = [];
+    const values = [];
+    
+    if (updates.status !== undefined) {
+      setClause.push('status = ?');
+      values.push(updates.status);
     }
+    
+    if (updates.player_a_score !== undefined) {
+      setClause.push('player_a_score = ?');
+      values.push(updates.player_a_score);
+    }
+    
+    if (updates.player_b_score !== undefined) {
+      setClause.push('player_b_score = ?');
+      values.push(updates.player_b_score);
+    }
+    
+    if (updates.winner_participant_id !== undefined) {
+      setClause.push('winner_participant_id = ?');
+      values.push(updates.winner_participant_id);
+    }
+    
+    if (setClause.length === 0) {
+      return c.json({ error: 'No valid update fields provided' }, 400);
+    }
+    
+    values.push(matchId);
+    
+    const query = `UPDATE Matches SET ${setClause.join(', ')} WHERE id = ?`;
+    await c.env.DB.prepare(query).bind(...values).run();
+    
+    // If match is completed, update league standings
+    if (updates.status === 'COMPLETED' && updates.winner_participant_id) {
+      const match = await c.env.DB.prepare(
+        'SELECT tournament_id, player_a_participant_id, player_b_participant_id FROM Matches WHERE id = ?'
+      ).bind(matchId).first();
+      
+      if (match) {
+        // Update standings for both players
+        const updateStandings = async (participantId: number, isWinner: boolean, isDraw: boolean) => {
+          const updateQuery = isDraw 
+            ? 'INSERT OR REPLACE INTO LeagueStandings (participant_id, points, matches_played, draws) VALUES (?, COALESCE((SELECT points FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT matches_played FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT draws FROM LeagueStandings WHERE participant_id = ?), 0) + 1)'
+            : isWinner
+              ? 'INSERT OR REPLACE INTO LeagueStandings (participant_id, points, matches_played, wins) VALUES (?, COALESCE((SELECT points FROM LeagueStandings WHERE participant_id = ?), 0) + 3, COALESCE((SELECT matches_played FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT wins FROM LeagueStandings WHERE participant_id = ?), 0) + 1)'
+              : 'INSERT OR REPLACE INTO LeagueStandings (participant_id, points, matches_played, losses) VALUES (?, COALESCE((SELECT points FROM LeagueStandings WHERE participant_id = ?), 0), COALESCE((SELECT matches_played FROM LeagueStandings WHERE participant_id = ?), 0) + 1, COALESCE((SELECT losses FROM LeagueStandings WHERE participant_id = ?), 0) + 1)';
+          
+          await c.env.DB.prepare(updateQuery).bind(participantId, participantId, participantId, participantId).run();
+        };
+        
+        const isDraw = updates.player_a_score === updates.player_b_score;
+        await updateStandings(match.player_a_participant_id, !isDraw && updates.winner_participant_id === match.player_a_participant_id, isDraw);
+        await updateStandings(match.player_b_participant_id, !isDraw && updates.winner_participant_id === match.player_b_participant_id, isDraw);
+      }
+    }
+    
+    return c.json({ message: 'Match updated successfully' });
+  } catch (error: any) {
+    console.error('Match update error:', error);
+    return c.json({ error: 'Failed to update match', details: error.message }, 500);
   }
 );
 
