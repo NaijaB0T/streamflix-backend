@@ -88,9 +88,11 @@ export class MatchStateDO implements DurableObject {
     return new Response("Not found", { status: 404 });
   }
 
-  handleWebSocket(server: WebSocket) {
+  async handleWebSocket(server: WebSocket) {
     server.accept();
     this.websockets.push(server);
+    
+    console.log('New WebSocket connection established. Total connections:', this.websockets.length);
 
     // Send current state to new connection
     if (this.currentVoteEvent) {
@@ -98,13 +100,21 @@ export class MatchStateDO implements DurableObject {
     }
     
     // Send current scores to new connection
-    server.send(JSON.stringify({ type: 'SCORE_UPDATE', scores: this.currentScores }));
+    server.send(JSON.stringify({ 
+      type: 'SCORE_UPDATE', 
+      scores: this.currentScores,
+      message: 'Connected to live match updates'
+    }));
+    
+    console.log('Sent initial scores to new connection:', this.currentScores);
 
     server.addEventListener("close", () => {
       this.websockets = this.websockets.filter(ws => ws !== server);
+      console.log('WebSocket connection closed. Remaining connections:', this.websockets.length);
     });
     server.addEventListener("error", () => {
       this.websockets = this.websockets.filter(ws => ws !== server);
+      console.log('WebSocket connection error. Remaining connections:', this.websockets.length);
     });
   }
 

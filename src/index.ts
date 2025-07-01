@@ -29,25 +29,52 @@ app.get('/', (c) => {
   return c.text('Hello from StreamFlix API!');
 });
 
-// Test score endpoint with exact path match
+// Test score endpoint with full Durable Object integration
 app.post('/api/admin/matches/:id/score', async (c) => {
-  console.log('=== SCORE ENDPOINT HIT ===');
+  console.log('=== REAL-TIME SCORE ENDPOINT HIT ===');
   const matchId = c.req.param('id');
+  
+  // Check admin auth
+  const secret = c.req.header('X-Admin-Secret');
+  if (!secret || secret !== c.env.ADMIN_SECRET) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
   
   try {
     const updates = await c.req.json();
     console.log('Match ID:', matchId);
-    console.log('Updates:', updates);
+    console.log('Score Updates:', updates);
+    
+    // Get the Durable Object for this match
+    const doId = c.env.MATCH_STATE_DO.idFromName(`match-${matchId}`);
+    const doStub = c.env.MATCH_STATE_DO.get(doId);
+    
+    // Send score update to Durable Object
+    const doResponse = await doStub.fetch(`https://match-state-do/update-score`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    
+    if (!doResponse.ok) {
+      const errorText = await doResponse.text();
+      console.error('Durable Object error:', errorText);
+      throw new Error(`Durable Object returned ${doResponse.status}: ${errorText}`);
+    }
+    
+    const result = await doResponse.json();
+    console.log('Durable Object response:', result);
     
     return c.json({ 
       success: true, 
-      message: 'Score endpoint working!', 
+      message: 'Real-time score update sent!', 
       matchId, 
-      updates 
+      updates,
+      doResult: result
     });
   } catch (error) {
-    console.error('Score endpoint error:', error);
-    return c.json({ error: 'Failed', details: error.message }, 400);
+    console.error('Real-time score endpoint error:', error);
+    return c.json({ error: 'Failed to update score', details: error.message }, 500);
   }
 });
 
@@ -60,9 +87,20 @@ app.get('/api/test', (c) => {
 app.get('/api/matches/:id/connect', async (c) => {
   const matchId = c.req.param('id');
   
+  console.log('WebSocket connection request for match:', matchId);
+  console.log('Request headers:', Object.fromEntries(c.req.headers.entries()));
+  
   // Validate matchId
   if (!matchId || !/^\d+$/.test(matchId)) {
+    console.error('Invalid match ID:', matchId);
     return c.json({ error: 'Invalid match ID' }, 400);
+  }
+  
+  // Check if this is a WebSocket upgrade request
+  const upgradeHeader = c.req.header('upgrade');
+  if (upgradeHeader?.toLowerCase() !== 'websocket') {
+    console.error('Expected WebSocket upgrade, got:', upgradeHeader);
+    return new Response('Expected WebSocket upgrade', { status: 426 });
   }
   
   try {
@@ -70,13 +108,17 @@ app.get('/api/matches/:id/connect', async (c) => {
     const doId = c.env.MATCH_STATE_DO.idFromName(`match-${matchId}`);
     const doStub = c.env.MATCH_STATE_DO.get(doId);
     
-    // Forward the WebSocket connection to the Durable Object
-    return doStub.fetch(`https://match-state-do/connect`, {
-      headers: c.req.headers
-    });
+    console.log('Forwarding WebSocket connection to Durable Object for match:', matchId);
+    
+    // Forward the entire request to the Durable Object
+    const doResponse = await doStub.fetch(c.req);
+    
+    console.log('Durable Object WebSocket response status:', doResponse.status);
+    return doResponse;
+    
   } catch (error: any) {
     console.error('WebSocket connection error:', error);
-    return c.json({ error: 'Failed to connect to match updates' }, 500);
+    return c.json({ error: 'Failed to connect to match updates', details: error.message }, 500);
   }
 });
 
