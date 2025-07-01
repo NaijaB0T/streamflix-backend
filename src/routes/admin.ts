@@ -487,50 +487,37 @@ admin.patch(
       return c.json({ error: 'Invalid match ID' }, 400);
     }
     
-    // Log the raw request body for debugging
-    const rawBody = await c.req.text();
-    console.log('Raw request body:', rawBody);
-    
-    // Parse JSON manually to see what we're getting
-    let requestData;
-    try {
-      requestData = JSON.parse(rawBody);
-      console.log('Parsed request data:', requestData);
-    } catch (parseError) {
-      console.log('JSON parse error:', parseError);
-      return c.json({ error: 'Invalid JSON in request body' }, 400);
-    }
-    
-    // Clean up the data - remove null winner_participant_id before validation
-    const cleanedData = { ...requestData };
-    if (cleanedData.winner_participant_id === null) {
-      delete cleanedData.winner_participant_id;
-    }
-    
     let updates;
     try {
-      // Validate manually with cleaned data
-      const schema = z.object({
-        status: z.enum(['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED']).optional(),
-        player_a_score: z.number().int().min(0).optional(),
-        player_b_score: z.number().int().min(0).optional(),
-        winner_participant_id: z.number().int().positive().optional(),
-      });
+      updates = await c.req.json();
+      console.log('Received updates:', updates);
       
-      updates = schema.parse(cleanedData);
-      console.log('Validated updates:', updates);
+      // Simple validation without Zod for now
+      const allowedFields = ['status', 'player_a_score', 'player_b_score', 'winner_participant_id'];
+      const validStatuses = ['SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELLED'];
       
-      // Add back null winner_participant_id if it was in the original request
-      if (requestData.winner_participant_id === null) {
-        updates.winner_participant_id = null;
+      for (const [key, value] of Object.entries(updates)) {
+        if (!allowedFields.includes(key)) {
+          return c.json({ error: `Invalid field: ${key}` }, 400);
+        }
+        
+        if (key === 'status' && !validStatuses.includes(value)) {
+          return c.json({ error: `Invalid status: ${value}` }, 400);
+        }
+        
+        if ((key === 'player_a_score' || key === 'player_b_score') && 
+            (typeof value !== 'number' || value < 0 || !Number.isInteger(value))) {
+          return c.json({ error: `Invalid ${key}: must be a non-negative integer` }, 400);
+        }
+        
+        if (key === 'winner_participant_id' && value !== null && 
+            (typeof value !== 'number' || value <= 0 || !Number.isInteger(value))) {
+          return c.json({ error: `Invalid winner_participant_id: must be a positive integer or null` }, 400);
+        }
       }
-    } catch (validationError) {
-      console.log('Validation error:', validationError);
-      return c.json({ 
-        error: 'Validation failed', 
-        details: validationError.errors || validationError.message,
-        received_data: requestData 
-      }, 400);
+      
+    } catch (error) {
+      return c.json({ error: 'Invalid JSON in request body' }, 400);
     }
     
     try {
