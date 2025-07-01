@@ -110,8 +110,15 @@ app.get('/api/matches/:id/connect', async (c) => {
     
     console.log('Forwarding WebSocket connection to Durable Object for match:', matchId);
     
-    // Forward the entire request to the Durable Object
-    const doResponse = await doStub.fetch(c.req);
+    // Create the correct URL for the Durable Object WebSocket endpoint
+    const doUrl = new URL(c.req.url);
+    doUrl.pathname = '/connect';
+    
+    // Forward the WebSocket upgrade request to the Durable Object
+    const doResponse = await doStub.fetch(doUrl.toString(), {
+      method: 'GET',
+      headers: c.req.headers
+    });
     
     console.log('Durable Object WebSocket response status:', doResponse.status);
     return doResponse;

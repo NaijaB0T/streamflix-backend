@@ -22,14 +22,28 @@ export class MatchStateDO implements DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    console.log('MatchStateDO fetch called with URL:', url.pathname);
 
-    if (url.pathname.endsWith('/connect')) {
-      if (request.headers.get("Upgrade") !== "websocket") {
+    if (url.pathname === '/connect' || url.pathname.endsWith('/connect')) {
+      console.log('WebSocket connection attempt in Durable Object');
+      const upgradeHeader = request.headers.get("Upgrade");
+      console.log('Upgrade header:', upgradeHeader);
+      
+      if (upgradeHeader !== "websocket") {
+        console.error('Expected WebSocket upgrade, got:', upgradeHeader);
         return new Response("Expected a WebSocket upgrade request", { status: 426 });
       }
-      const [client, server] = Object.values(new WebSocketPair());
-      this.handleWebSocket(server);
-      return new Response(null, { status: 101, webSocket: client });
+      
+      try {
+        const [client, server] = Object.values(new WebSocketPair());
+        console.log('WebSocket pair created, calling handleWebSocket');
+        this.handleWebSocket(server);
+        console.log('Returning WebSocket response');
+        return new Response(null, { status: 101, webSocket: client });
+      } catch (error: any) {
+        console.error('Error creating WebSocket pair:', error);
+        return new Response('Failed to create WebSocket connection', { status: 500 });
+      }
     }
 
     if (url.pathname.endsWith('/start-vote')) {
@@ -89,45 +103,69 @@ export class MatchStateDO implements DurableObject {
   }
 
   async handleWebSocket(server: WebSocket) {
-    server.accept();
-    this.websockets.push(server);
-    
-    console.log('New WebSocket connection established. Total connections:', this.websockets.length);
+    try {
+      console.log('Accepting WebSocket connection...');
+      server.accept();
+      this.websockets.push(server);
+      
+      console.log('✅ New WebSocket connection established. Total connections:', this.websockets.length);
 
-    // Send current state to new connection
-    if (this.currentVoteEvent) {
-      server.send(JSON.stringify({ type: 'VOTE_STARTED', event: this.currentVoteEvent }));
+      // Send current state to new connection
+      if (this.currentVoteEvent) {
+        const voteMessage = JSON.stringify({ type: 'VOTE_STARTED', event: this.currentVoteEvent });
+        server.send(voteMessage);
+        console.log('Sent vote event to new connection');
+      }
+      
+      // Send current scores to new connection
+      const scoreMessage = JSON.stringify({ 
+        type: 'SCORE_UPDATE', 
+        scores: this.currentScores,
+        message: 'Connected to live match updates'
+      });
+      server.send(scoreMessage);
+      
+      console.log('✅ Sent initial scores to new connection:', this.currentScores);
+
+      server.addEventListener("close", (event) => {
+        console.log('WebSocket closing with code:', event.code, 'reason:', event.reason);
+        this.websockets = this.websockets.filter(ws => ws !== server);
+        console.log('WebSocket connection closed. Remaining connections:', this.websockets.length);
+      });
+      
+      server.addEventListener("error", (event) => {
+        console.error('WebSocket error event:', event);
+        this.websockets = this.websockets.filter(ws => ws !== server);
+        console.log('WebSocket connection error. Remaining connections:', this.websockets.length);
+      });
+      
+      server.addEventListener("message", (event) => {
+        console.log('Received WebSocket message:', event.data);
+        // Handle incoming messages if needed
+      });
+      
+    } catch (error: any) {
+      console.error('Error in handleWebSocket:', error);
+      throw error;
     }
-    
-    // Send current scores to new connection
-    server.send(JSON.stringify({ 
-      type: 'SCORE_UPDATE', 
-      scores: this.currentScores,
-      message: 'Connected to live match updates'
-    }));
-    
-    console.log('Sent initial scores to new connection:', this.currentScores);
-
-    server.addEventListener("close", () => {
-      this.websockets = this.websockets.filter(ws => ws !== server);
-      console.log('WebSocket connection closed. Remaining connections:', this.websockets.length);
-    });
-    server.addEventListener("error", () => {
-      this.websockets = this.websockets.filter(ws => ws !== server);
-      console.log('WebSocket connection error. Remaining connections:', this.websockets.length);
-    });
   }
 
   broadcast(message: any) {
     const serializedMessage = JSON.stringify(message);
-    this.websockets.forEach(ws => {
+    console.log(`📡 Broadcasting to ${this.websockets.length} connections:`, message);
+    
+    this.websockets.forEach((ws, index) => {
       try {
         ws.send(serializedMessage);
-      } catch (e) {
+        console.log(`✅ Message sent to connection ${index + 1}`);
+      } catch (e: any) {
+        console.error(`❌ Failed to send message to connection ${index + 1}:`, e.message);
         // This can happen if the socket is closed but not yet removed from the array
         this.websockets = this.websockets.filter(s => s !== ws);
       }
     });
+    
+    console.log(`📡 Broadcast complete. Active connections: ${this.websockets.length}`);
   }
 
   async alarm() {
